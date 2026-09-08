@@ -45,12 +45,30 @@ class ObstacleAvoidanceNode(Node):
         if self.last_scan is None:
             return # Does not run if the laser message is not received.
         
-        ######################## MODIFY CODE HERE ########################
-        self.get_logger().debug(str(self.last_scan))
-        self.move_2D(0.2, 0.0, 0.0)
+        ranges = np.array(self.last_scan)
+        # Filter out invalid readings (0.0, nan, or inf)
+        ranges = np.where(np.isnan(ranges) | np.isinf(ranges) | (ranges <= 0.05), 10.0, ranges)
 
-        ######################## MODIFY CODE HERE ########################
+        # In 36-scan slice (each index ~ 10 degrees):
+        # Front-left: indices [0:4] (0° to ~30° CCW)
+        # Front-right: indices [32:36] (~-40° to 0°)
+        front_left = np.min(ranges[0:4])
+        front_right = np.min(ranges[32:])
+        front_dist = min(front_left, front_right)
 
+        safe_distance = 0.6  # Safe clearance distance in meters
+
+        if front_dist < safe_distance:
+            # Obstacle detected in front -> steer towards the clearer side
+            if front_left < front_right:
+                # Closer on the left: turn right (-turn) or strafe right (-y)
+                self.move_2D(x=0.05, y=-0.15, turn=-0.6)
+            else:
+                # Closer on the right: turn left (+turn) or strafe left (+y)
+                self.move_2D(x=0.05, y=0.15, turn=0.6)
+        else:
+            # Path ahead is clear -> drive forward towards the goal
+            self.move_2D(x=0.3, y=0.0, turn=0.0)
 
 
 def main(args=None):
