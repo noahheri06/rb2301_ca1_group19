@@ -3,3 +3,4 @@
 /install
 /.vscode
 /log_dir
+**/__pycache__/
