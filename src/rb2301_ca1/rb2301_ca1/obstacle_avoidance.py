@@ -18,13 +18,12 @@ class ObstacleAvoidanceNode(Node):
     def __init__(self):
         """Node constructor"""
         super().__init__("obstacle_avoidance")
-        self.safe_distance = 1.5
+        self.safe_distance = 0.4
+        self.side_safe_distance = 0.3
         self.get_logger().info("Starting Obstacle Avoidance")
 
-        self.target_x = 0
-        self.target_y = 0
-        self.direction = 0
-        self.reached = True
+        self.left_blocked = False
+        self.right_blocked = False
 
         self.pub_cmd_vel = self.create_publisher(Twist, "cmd_vel", 10)  # Publish to cmd_vel node
         self.sub_scan = self.create_subscription(LaserScan, "scan", self.sub_scan_callback, 2) # The subscriber to the Lidar ranges.
@@ -44,22 +43,7 @@ class ObstacleAvoidanceNode(Node):
 
     def sub_scan_callback(self, msg):
         """Scan subscriber"""
-        self.last_scan = np.array(msg.ranges)[::45]# Slices the 721 scan array to return only 36 scans. Feel free to edit
-
-    def goto(self):
-        self.get_logger().info(f"Move to {self.target_x}, {self.target_y}")
-        if self.target_x and self.target_y:
-            if self.target_x > self.target_y:
-                x_speed = (max_translate_velocity if self.target_x > max_translate_velocity else self.target_x)
-                y_speed = x_speed*self.target_y/self.target_x*self.direction
-            else:
-                y_speed = (max_translate_velocity if self.target_y > max_translate_velocity else self.target_y)*self.direction
-                x_speed = y_speed*self.target_x/self.target_y*self.direction
-            self.move_2D(x_speed,y_speed)
-            self.target_x -= x_speed
-            self.target_y -= y_speed
-        else:
-            self.reached = True
+        self.last_scan = np.array(msg.ranges)[::2]# Slices the 721 scan array to return only 36 scans. Feel free to edit
         
 
     def timer_callback(self):
@@ -71,62 +55,35 @@ class ObstacleAvoidanceNode(Node):
         ######################## MODIFY CODE HERE ########################
         #self.get_logger().debug(str(self.last_scan))
 
-        #"""
-        if self.last_scan[0] > self.safe_distance:
-            if self.last_scan[1] > self.safe_distance:
-                if self.last_scan[15] > self.safe_distance:
-                    self.move_2D(0.2, 0.0, 0.0)
-                    self.get_logger().info("Moving forward.")
-                else:
-                    self.move_2D(0.1,0.3)
-                    self.get_logger().info("Slightly left.")
+        front = np.min(np.concatenate((self.last_scan[0:30], self.last_scan[330:])))
+        left = np.min(self.last_scan[60:105])
+        right = np.min(self.last_scan[255:300])
+
+        if front > self.safe_distance:
+            self.get_logger().info("Moving Forward.")
+            self.left_blocked = False
+            self.right_blocked = False
+            self.move_2D(0.2,0.0,0.0)
+            self.direction = 1 if left >= right else 0
+        elif not self.left_blocked and not self.right_blocked:
+            if self.direction:
+                self.get_logger().info(f"Moving Left.")
+                self.move_2D(0.0,0.2,0.0)
+                if left < self.side_safe_distance:
+                    self.left_blocked = True
             else:
-                self.move_2D(0.1,-0.3)
-                self.get_logger().info("Slightly right.")
+                self.get_logger().info("Moving Right.")
+                self.move_2D(0.0,-0.2,0.0)
+                if right < self.side_safe_distance:
+                    self.right_blocked = True
+        elif self.left_blocked:
+            self.get_logger().info("Looping Right.")
+            self.move_2D(0.0,-0.2,0.0)
         else:
-            if self.last_scan[3] > self.last_scan[13]:
-                self.move_2D(0, 0.4)
-                self.get_logger().info("Left.")
-            else:
-                self.move_2D(0, -0.4)
-                self.get_logger().info("Right.")
-        """
-        if not self.reached:
-            self.goto()
-        elif self.last_scan[0] > self.safe_distance and self.last_scan[50] > self.safe_distance and self.last_scan[669] > self.safe_distance:
-            self.get_logger().info("Moving forward.")
-            self.move_2D(0.2, 0.0, 0.0)
-        else:
-            for i in range(4,5):
-                angle_1 = i*22
-                length_1 = self.safe_distance/math.cos(deg_to_rad(angle_1))
-                #length_2 = math.sqrt(self.safe_distance**2 + length_1**2 - 2*self.safe_distance*length_1*math.sin(deg_to_rad(angle_1)))
-                #angle_2 = angle_1 - rad_to_deg(math.acos((self.safe_distance**2 + length_1**2 - length_2**2)/(2*self.safe_distance*length_1)))
+            self.get_logger().info("Looping Left.")
+            self.move_2D(0.0,0.2,0.0)
 
-                #print(f"angle 1 = {angle_1}, angle 2 = {angle_2}")
-                if self.last_scan[int(angle_1*2)] > length_1: #and self.last_scan[int(angle_2*2)] > length_2:
-                    self.reached = False
-                    self.target_x = self.safe_distance
-                    self.target_y = length_1*math.sin(angle_1)*1.5
-                    self.direction = 1
-                    break
-                elif self.last_scan[int(719-angle_1*2)] > length_1: #and self.last_scan[int(719-angle_2*2)] > length_2:
-                    self.reached = False
-                    self.target_x = self.safe_distance
-                    self.target_y = -length_1*math.sin(angle_1)*1.5
-                    self.direction = -1
-                    break
-            self.goto()
-        """
-        ######################## MODIFY CODE HERE ########################
-
-def deg_to_rad(deg):
-    return deg*math.pi/180
-
-def rad_to_deg(rad):
-    return rad*180/math.pi
-
-
+        ######################## MODIFY CODE HERE #######################
 
 def main(args=None):
     rclpy.init(args=args)
